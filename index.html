@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Reply — AI Email Drafter</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink:       #1a1a2e;
+      --ink-soft:  #4a4a6a;
+      --ink-muted: #8888aa;
+      --rule:      #e2e2ee;
+      --surface:   #f8f8fc;
+      --white:     #ffffff;
+      --accent:    #4f46e5;
+      --accent-lt: #ede9fe;
+      --green:     #059669;
+      --green-lt:  #d1fae5;
+      --red:       #dc2626;
+      --red-lt:    #fee2e2;
+      --amber:     #d97706;
+      --amber-lt:  #fef3c7;
+      --radius:    12px;
+      --shadow:    0 2px 16px rgba(79,70,229,.08);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--surface);
+      color: var(--ink);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--white);
+      border-bottom: 1px solid var(--rule);
+      padding: 0 20px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo {
+      font-family: 'Lora', serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -.3px;
+    }
+    .logo span { color: var(--accent); }
+    .header-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px; border: none;
+      font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: all .15s ease; white-space: nowrap;
+    }
+    .btn-primary   { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-ghost     { background: transparent; color: var(--ink-soft); border: 1px solid var(--rule); }
+    .btn-ghost:hover { background: var(--surface); }
+    .btn-green     { background: var(--green); color: #fff; }
+    .btn-green:hover { background: #047857; }
+    .btn-red       { background: var(--red-lt); color: var(--red); border: 1px solid #fca5a5; }
+    .btn-red:hover { background: #fecaca; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* ── Screens ── */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── Sign-in ── */
+    #screen-signin {
+      min-height: 100vh;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    #screen-signin.active { display: flex; }
+    .signin-card {
+      background: var(--white);
+      border: 1px solid var(--rule);
+      border-radius: 20px;
+      padding: 48px 40px;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: var(--shadow);
+    }
+    .signin-icon {
+      width: 64px; height: 64px;
+      background: var(--accent-lt);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 28px;
+    }
+    .signin-card h1 {
+      font-family: 'Lora', serif;
+      font-size: 24px; font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .signin-card p {
+      color: var(--ink-soft); font-size: 14px; line-height: 1.6;
+      margin-bottom: 32px;
+    }
+    .signin-card .btn { width: 100%; justify-content: center; padding: 12px; font-size: 15px; }
+    .safety-note {
+      margin-top: 20px;
+      padding: 12px 16px;
+      background: var(--green-lt);
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--green);
+      line-height: 1.5;
+    }
+
+    /* ── Setup modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(26,26,46,.5); backdrop-filter: blur(4px);
+      z-index: 200; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--white); border-radius: 20px;
+      padding: 32px; max-width: 480px; width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal h2 { font-family: 'Lora', serif; font-size: 20px; margin-bottom: 6px; }
+    .modal .subtitle { color: var(--ink-soft); font-size: 13px; margin-bottom: 24px; }
+    .field { margin-bottom: 16px; }
+    .field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--ink-soft); }
+    .field input, .field textarea {
+      width: 100%; padding: 10px 14px;
+      border: 1px solid var(--rule); border-radius: 8px;
+      font-family: 'Inter', sans-serif; font-size: 14px; color: var(--ink);
+      background: var(--surface);
+      transition: border-color .15s;
+      outline: none;
+    }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); background: var(--white); }
+    .field textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+    .modal-actions { display: flex; gap: 8px; margin-top: 24px; }
+    .modal-actions .btn { flex: 1; justify-content: center; padding: 11px; }
+
+    /* ── Inbox ── */
+    #screen-inbox { padding: 20px; max-width: 680px; margin: 0 auto; }
+    .inbox-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .inbox-header h2 { font-family: 'Lora', serif; font-size: 22px; }
+    .inbox-header p { font-size: 13px; color: var(--ink-muted); margin-top: 2px; }
+    .email-list { display: flex; flex-direction: column; gap: 8px; }
+    .email-item {
+      background: var(--white); border: 1px solid var(--rule);
+      border-radius: var(--radius); padding: 16px 18px;
+      cursor: pointer; transition: all .15s;
+    }
+    .email-item:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateY(-1px); }
+    .email-item.unread { border-left: 3px solid var(--accent); }
+    .email-meta { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+    .email-from { font-size: 14px; font-weight: 600; }
+    .email-date { font-size: 12px; color: var(--ink-muted); white-space: nowrap; margin-left: 12px; }
+    .email-subject { font-size: 13px; font-weight: 500; color: var(--ink); margin-bottom: 4px; }
+    .email-snippet { font-size: 13px; color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .empty-state {
+      text-align: center; padding: 60px 20px; color: var(--ink-muted);
+    }
+    .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+
+    /* ── Email detail ── */
+    #screen-detail { padding: 20px; max-width: 680px; margin: 0 auto; }
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 14px; color: var(--ink-soft); cursor: pointer;
+      margin-bottom: 20px; background: none; border: none; padding: 0;
+      font-family: 'Inter', sans-serif;
+    }
+    .back-btn:hover { color: var(--accent); }
+    .email-card {
+      background: var(--white); border: 1px solid var(--rule);
+      border-radius: var(--radius); padding: 24px; margin-bottom: 20px;
+    }
+    .email-card h2 { font-family: 'Lora', serif; font-size: 20px; margin-bottom: 16px; line-height: 1.3; }
+    .email-card-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .meta-pill {
+      font-size: 12px; padding: 4px 10px; border-radius: 20px;
+      background: var(--surface); border: 1px solid var(--rule); color: var(--ink-soft);
+    }
+    .email-body {
+      font-size: 14px; line-height: 1.7; color: var(--ink);
+      white-space: pre-wrap; word-break: break-word;
+      max-height: 300px; overflow-y: auto;
+      border-top: 1px solid var(--rule); padding-top: 16px;
+    }
+    .draft-section { margin-bottom: 20px; }
+    .draft-section h3 {
+      font-size: 13px; font-weight: 600; color: var(--ink-muted);
+      text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
+    }
+    .draft-card {
+      background: var(--white); border: 1px solid var(--rule);
+      border-radius: var(--radius); overflow: hidden;
+    }
+    .draft-card textarea {
+      width: 100%; padding: 20px; border: none; outline: none;
+      font-family: 'Lora', serif; font-size: 15px; line-height: 1.8;
+      color: var(--ink); resize: none; min-height: 240px;
+      background: var(--white);
+    }
+    .draft-actions {
+      display: flex; gap: 8px; padding: 12px 16px;
+      border-top: 1px solid var(--rule); flex-wrap: wrap;
+    }
+    .generating-state {
+      padding: 40px; text-align: center; color: var(--ink-muted);
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--rule); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .7s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .generate-btn-wrap { text-align: center; padding: 24px; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+      background: var(--ink); color: #fff; padding: 12px 20px;
+      border-radius: 10px; font-size: 14px; font-weight: 500;
+      transition: transform .3s ease; z-index: 300; white-space: nowrap;
+      box-shadow: 0 4px 20px rgba(0,0,0,.2);
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.success { background: var(--green); }
+    .toast.error   { background: var(--red); }
+
+    /* ── Loading overlay ── */
+    .loading-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(248,248,252,.9); z-index: 150;
+      align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+    }
+    .loading-overlay.show { display: flex; }
+    .loading-overlay p { font-size: 14px; color: var(--ink-soft); }
+
+    /* ── Settings screen ── */
+    #screen-settings { padding: 20px; max-width: 680px; margin: 0 auto; }
+    #screen-settings h2 { font-family: 'Lora', serif; font-size: 22px; margin-bottom: 20px; }
+    .settings-card {
+      background: var(--white); border: 1px solid var(--rule);
+      border-radius: var(--radius); padding: 24px; margin-bottom: 16px;
+    }
+    .settings-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--ink); }
+    .settings-card .field { margin-bottom: 12px; }
+    .settings-card .field:last-child { margin-bottom: 0; }
+
+    @media (max-width: 480px) {
+      .signin-card { padding: 32px 24px; }
+      .modal { padding: 24px; }
+      .draft-actions { gap: 6px; }
+      .btn { padding: 8px 12px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">Re<span>ply</span></div>
+  <div class="header-actions">
+    <button class="btn btn-ghost btn-sm" id="btn-settings" style="display:none" onclick="showScreen('settings')">⚙️ Settings</button>
+    <button class="btn btn-ghost btn-sm" id="btn-signout" style="display:none" onclick="signOut()">Sign out</button>
+  </div>
+</header>
+
+<!-- Sign-in screen -->
+<div id="screen-signin" class="screen active">
+  <div class="signin-card">
+    <div class="signin-icon">✉️</div>
+    <h1>Reply</h1>
+    <p>AI-powered email drafts. Read your Gmail, get a smart reply written by Claude, then approve or edit before anything saves.</p>
+    <button class="btn btn-primary" onclick="startSetup()">Get started</button>
+    <div class="safety-note">🔒 Nothing is ever sent automatically. Drafts are saved to your Gmail Drafts folder — you send them yourself.</div>
+  </div>
+</div>
+
+<!-- Inbox screen -->
+<div id="screen-inbox" class="screen">
+  <div class="inbox-header">
+    <div>
+      <h2>Inbox</h2>
+      <p id="inbox-subtitle">Your recent emails</p>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="loadEmails()">↻ Refresh</button>
+  </div>
+  <div class="email-list" id="email-list">
+    <div class="empty-state"><div class="icon">📭</div><p>Loading your emails…</p></div>
+  </div>
+</div>
+
+<!-- Email detail screen -->
+<div id="screen-detail" class="screen">
+  <button class="back-btn" onclick="showScreen('inbox')">← Back to inbox</button>
+  <div class="email-card" id="detail-card">
+    <h2 id="detail-subject"></h2>
+    <div class="email-card-meta" id="detail-meta"></div>
+    <div class="email-body" id="detail-body"></div>
+  </div>
+  <div class="draft-section">
+    <h3>AI Draft Reply</h3>
+    <div class="draft-card" id="draft-card">
+      <div class="generate-btn-wrap">
+        <button class="btn btn-primary" onclick="generateDraft()">✨ Generate draft reply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings screen -->
+<div id="screen-settings" class="screen">
+  <button class="back-btn" onclick="showScreen('inbox')">← Back to inbox</button>
+  <h2>Settings</h2>
+  <div class="settings-card">
+    <h3>Your writing style</h3>
+    <div class="field">
+      <label>Tone instructions for Claude</label>
+      <textarea id="settings-tone" rows="4" placeholder="e.g. Friendly and conversational but professional. I'm a director at a software company. Keep replies clear and concise."></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+  </div>
+  <div class="settings-card">
+    <h3>API configuration</h3>
+    <div class="field">
+      <label>Claude API key</label>
+      <input type="password" id="settings-claude-key" placeholder="sk-ant-…" />
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="saveSettings()">Update</button>
+  </div>
+</div>
+
+<!-- Setup modal -->
+<div class="modal-overlay" id="modal-setup">
+  <div class="modal">
+    <h2>Quick setup</h2>
+    <p class="subtitle">Enter your API keys once — they're saved privately in your browser.</p>
+    <div class="field">
+      <label>Claude API key</label>
+      <input type="password" id="setup-claude-key" placeholder="sk-ant-api03-…" />
+    </div>
+    <div class="field">
+      <label>Google OAuth Client ID</label>
+      <input type="text" id="setup-google-id" placeholder="xxxx.apps.googleusercontent.com" />
+    </div>
+    <div class="field">
+      <label>Your tone (editable anytime in Settings)</label>
+      <textarea id="setup-tone" rows="3" placeholder="Friendly and conversational but professional. I'm a director at a software company. Keep replies clear and concise.">Friendly and conversational but professional. I'm a director at a software company. Keep replies clear and concise. Use the recipient's first name if known. Sign off warmly.</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSetup()">Connect Gmail →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="spinner"></div>
+  <p id="loading-msg">Loading…</p>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // ── Config ──────────────────────────────────────────────
+  const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose';
+  let gapi_loaded = false;
+  let currentEmail = null;
+
+  // ── Storage helpers ──────────────────────────────────────
+  const store = {
+    get: k => localStorage.getItem(k),
+    set: (k,v) => localStorage.setItem(k,v),
+    del: k => localStorage.removeItem(k)
+  };
+
+  // ── Boot ─────────────────────────────────────────────────
+  window.addEventListener('load', () => {
+    const claudeKey = store.get('claude_key');
+    const googleId  = store.get('google_client_id');
+    if (claudeKey && googleId) {
+      initGapi(googleId);
+    }
+  });
+
+  function startSetup() {
+    // Pre-fill if already set
+    const k = store.get('claude_key');
+    const g = store.get('google_client_id');
+    const t = store.get('tone');
+    if (k) document.getElementById('setup-claude-key').value = k;
+    if (g) document.getElementById('setup-google-id').value = g;
+    if (t) document.getElementById('setup-tone').value = t;
+    document.getElementById('modal-setup').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modal-setup').classList.remove('open');
+  }
+
+  function saveSetup() {
+    const claudeKey = document.getElementById('setup-claude-key').value.trim();
+    const googleId  = document.getElementById('setup-google-id').value.trim();
+    const tone      = document.getElementById('setup-tone').value.trim();
+    if (!claudeKey) { showToast('Please enter your Claude API key', 'error'); return; }
+    if (!googleId)  { showToast('Please enter your Google Client ID', 'error'); return; }
+    store.set('claude_key', claudeKey);
+    store.set('google_client_id', googleId);
+    store.set('tone', tone || 'Friendly and professional.');
+    closeModal();
+    initGapi(googleId);
+  }
+
+  // ── Google API ───────────────────────────────────────────
+  function initGapi(clientId) {
+    showLoading('Connecting to Google…');
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.onload = () => {
+      const tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: SCOPES,
+        callback: handleTokenResponse
+      });
+      store.set('_tokenClient', 'ready');
+      window._tokenClient = tokenClient;
+
+      // Check if we already have a valid token
+      const token = store.get('gmail_token');
+      if (token) {
+        gapi.load('client', async () => {
+          await gapi.client.init({});
+          gapi.client.setToken({ access_token: token });
+          hideLoading();
+          showAuthenticatedUI();
+          loadEmails();
+        });
+      } else {
+        hideLoading();
+        // Load gapi for later
+        const gapiScript = document.createElement('script');
+        gapiScript.src = 'https://apis.google.com/js/api.js';
+        gapiScript.onload = () => {
+          gapi.load('client', async () => {
+            await gapi.client.init({});
+          });
+        };
+        document.head.appendChild(gapiScript);
+        requestGmailAccess();
+      }
+    };
+    document.head.appendChild(script);
+
+    // Load gapi in parallel
+    const gapiScript = document.createElement('script');
+    gapiScript.src = 'https://apis.google.com/js/api.js';
+    gapiScript.onload = () => {
+      gapi.load('client', async () => {
+        await gapi.client.init({});
+        gapi_loaded = true;
+      });
+    };
+    document.head.appendChild(gapiScript);
+  }
+
+  function requestGmailAccess() {
+    if (window._tokenClient) {
+      window._tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+      showToast('Still loading Google — please try again in a moment', 'error');
+    }
+  }
+
+  function handleTokenResponse(resp) {
+    if (resp.error) {
+      showToast('Google sign-in failed: ' + resp.error, 'error');
+      hideLoading();
+      return;
+    }
+    store.set('gmail_token', resp.access_token);
+    gapi.client.setToken({ access_token: resp.access_token });
+    showAuthenticatedUI();
+    loadEmails();
+  }
+
+  function showAuthenticatedUI() {
+    document.getElementById('btn-settings').style.display = 'inline-flex';
+    document.getElementById('btn-signout').style.display = 'inline-flex';
+    showScreen('inbox');
+  }
+
+  function signOut() {
+    const token = store.get('gmail_token');
+    if (token && window.google) {
+      google.accounts.oauth2.revoke(token);
+    }
+    store.del('gmail_token');
+    document.getElementById('btn-settings').style.display = 'none';
+    document.getElementById('btn-signout').style.display = 'none';
+    showScreen('signin');
+  }
+
+  // ── Load emails ──────────────────────────────────────────
+  async function loadEmails() {
+    showLoading('Loading inbox…');
+    try {
+      const token = store.get('gmail_token');
+      // Fetch message list
+      const listRes = await fetch(
+        'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=INBOX',
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      if (listRes.status === 401) { requestGmailAccess(); return; }
+      const listData = await listRes.json();
+      const messages = listData.messages || [];
+
+      // Fetch each message's metadata in parallel
+      const emails = await Promise.all(messages.map(async m => {
+        const res = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { Authorization: 'Bearer ' + token } }
+        );
+        return res.json();
+      }));
+
+      renderEmailList(emails);
+    } catch(e) {
+      showToast('Could not load emails. Try refreshing.', 'error');
+    }
+    hideLoading();
+  }
+
+  function renderEmailList(emails) {
+    const list = document.getElementById('email-list');
+    if (!emails.length) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>No emails found.</p></div>';
+      return;
+    }
+    list.innerHTML = emails.map(email => {
+      const headers = email.payload?.headers || [];
+      const from    = getHeader(headers, 'From') || 'Unknown';
+      const subject = getHeader(headers, 'Subject') || '(no subject)';
+      const date    = formatDate(getHeader(headers, 'Date'));
+      const snippet = email.snippet || '';
+      const unread  = email.labelIds?.includes('UNREAD') ? 'unread' : '';
+      const fromName = from.replace(/<.*>/, '').replace(/"/g,'').trim() || from;
+      return `<div class="email-item ${unread}" onclick="openEmail('${email.id}')">
+        <div class="email-meta">
+          <span class="email-from">${escHtml(fromName)}</span>
+          <span class="email-date">${date}</span>
+        </div>
+        <div class="email-subject">${escHtml(subject)}</div>
+        <div class="email-snippet">${escHtml(snippet)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Open email ───────────────────────────────────────────
+  async function openEmail(id) {
+    showLoading('Loading email…');
+    try {
+      const token = store.get('gmail_token');
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+        { headers: { Authorization: 'Bearer ' + token } }
+      );
+      const email = await res.json();
+      currentEmail = email;
+
+      const headers = email.payload?.headers || [];
+      const subject = getHeader(headers, 'Subject') || '(no subject)';
+      const from    = getHeader(headers, 'From') || '';
+      const to      = getHeader(headers, 'To') || '';
+      const date    = formatDate(getHeader(headers, 'Date'));
+      const body    = extractBody(email.payload);
+
+      document.getElementById('detail-subject').textContent = subject;
+      document.getElementById('detail-meta').innerHTML =
+        `<span class="meta-pill">From: ${escHtml(from)}</span>
+         <span class="meta-pill">To: ${escHtml(to)}</span>
+         <span class="meta-pill">${date}</span>`;
+      document.getElementById('detail-body').textContent = body;
+
+      // Reset draft area
+      document.getElementById('draft-card').innerHTML = `
+        <div class="generate-btn-wrap">
+          <button class="btn btn-primary" onclick="generateDraft()">✨ Generate draft reply</button>
+        </div>`;
+
+      showScreen('detail');
+    } catch(e) {
+      showToast('Could not load email.', 'error');
+    }
+    hideLoading();
+  }
+
+  // ── Generate draft ───────────────────────────────────────
+  async function generateDraft() {
+    const claudeKey = store.get('claude_key');
+    if (!claudeKey) { showToast('No Claude API key found — check Settings', 'error'); return; }
+
+    const tone    = store.get('tone') || 'Friendly and professional.';
+    const headers = currentEmail.payload?.headers || [];
+    const subject = getHeader(headers, 'Subject') || '';
+    const from    = getHeader(headers, 'From') || '';
+    const body    = extractBody(currentEmail.payload);
+
+    document.getElementById('draft-card').innerHTML = `
+      <div class="generating-state">
+        <div class="spinner"></div>
+        <p>Claude is drafting your reply…</p>
+      </div>`;
+
+    try {
+      const prompt = `You are drafting a reply on behalf of the email recipient. Here are their tone instructions:
+
+"${tone}"
+
+---
+ORIGINAL EMAIL
+From: ${from}
+Subject: ${subject}
+
+${body}
+---
+
+Write a reply email. Output ONLY the email body text — no subject line, no "Subject:", no preamble. Start directly with the greeting. Keep it appropriately concise.`;
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': claudeKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      const draft = data.content?.[0]?.text || '';
+
+      renderDraft(draft, subject, from);
+    } catch(e) {
+      document.getElementById('draft-card').innerHTML = `
+        <div class="generate-btn-wrap">
+          <p style="color:var(--red);font-size:13px;margin-bottom:12px">Error: ${escHtml(e.message)}</p>
+          <button class="btn btn-primary" onclick="generateDraft()">↻ Try again</button>
+        </div>`;
+    }
+  }
+
+  function renderDraft(draft, originalSubject, from) {
+    const replySubject = originalSubject.startsWith('Re:') ? originalSubject : 'Re: ' + originalSubject;
+    document.getElementById('draft-card').innerHTML = `
+      <textarea id="draft-text" spellcheck="true">${escHtml(draft)}</textarea>
+      <div class="draft-actions">
+        <button class="btn btn-green" onclick="saveDraft()">✓ Save to Drafts</button>
+        <button class="btn btn-ghost" onclick="generateDraft()">↻ Regenerate</button>
+        <button class="btn btn-red btn-sm" onclick="rejectDraft()">✕ Reject</button>
+      </div>`;
+
+    // Store for saving
+    window._replySubject = replySubject;
+    window._replyTo = from;
+  }
+
+  // ── Save draft to Gmail ──────────────────────────────────
+  async function saveDraft() {
+    const token   = store.get('gmail_token');
+    const draftText = document.getElementById('draft-text').value;
+    const subject = window._replySubject || 'Re: (email)';
+    const to      = window._replyTo || '';
+
+    const headers = [
+      'To: ' + to,
+      'Subject: ' + subject,
+      'Content-Type: text/plain; charset=utf-8',
+      'MIME-Version: 1.0'
+    ].join('\r\n');
+    const raw = btoa(unescape(encodeURIComponent(headers + '\r\n\r\n' + draftText)))
+      .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+    showLoading('Saving to Gmail Drafts…');
+    try {
+      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: { raw } })
+      });
+      if (!res.ok) throw new Error('Gmail API error');
+      showToast('Draft saved to Gmail! Open Gmail to review and send.', 'success');
+      setTimeout(() => showScreen('inbox'), 1500);
+    } catch(e) {
+      showToast('Could not save draft: ' + e.message, 'error');
+    }
+    hideLoading();
+  }
+
+  function rejectDraft() {
+    document.getElementById('draft-card').innerHTML = `
+      <div class="generate-btn-wrap">
+        <p style="color:var(--ink-muted);font-size:13px;margin-bottom:12px">Draft rejected.</p>
+        <button class="btn btn-primary" onclick="generateDraft()">✨ Try again</button>
+      </div>`;
+  }
+
+  // ── Settings ─────────────────────────────────────────────
+  function showSettingsScreen() {
+    document.getElementById('settings-tone').value = store.get('tone') || '';
+    document.getElementById('settings-claude-key').value = store.get('claude_key') || '';
+    showScreen('settings');
+  }
+
+  function saveSettings() {
+    const tone = document.getElementById('settings-tone').value.trim();
+    const key  = document.getElementById('settings-claude-key').value.trim();
+    if (tone) store.set('tone', tone);
+    if (key)  store.set('claude_key', key);
+    showToast('Settings saved', 'success');
+  }
+
+  // ── Helpers ──────────────────────────────────────────────
+  function showScreen(name) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const el = document.getElementById('screen-' + name);
+    if (el) {
+      el.classList.add('active');
+      if (name === 'settings') showSettingsScreen();
+    }
+    window.scrollTo(0,0);
+  }
+
+  function showLoading(msg) {
+    document.getElementById('loading-msg').textContent = msg || 'Loading…';
+    document.getElementById('loading-overlay').classList.add('show');
+  }
+
+  function hideLoading() {
+    document.getElementById('loading-overlay').classList.remove('show');
+  }
+
+  function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (type ? ' ' + type : '');
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3500);
+  }
+
+  function getHeader(headers, name) {
+    return headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+  }
+
+  function extractBody(payload) {
+    if (!payload) return '';
+    if (payload.body?.data) return decodeBase64(payload.body.data);
+    if (payload.parts) {
+      // prefer text/plain
+      const plain = payload.parts.find(p => p.mimeType === 'text/plain');
+      if (plain?.body?.data) return decodeBase64(plain.body.data);
+      // fallback: recurse
+      for (const part of payload.parts) {
+        const text = extractBody(part);
+        if (text) return text;
+      }
+    }
+    return payload.snippet || '';
+  }
+
+  function decodeBase64(data) {
+    try {
+      return decodeURIComponent(escape(atob(data.replace(/-/g,'+').replace(/_/g,'/'))));
+    } catch {
+      return '';
+    }
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 86400000) return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      if (diff < 604800000) return d.toLocaleDateString([], {weekday:'short'});
+      return d.toLocaleDateString([], {month:'short', day:'numeric'});
+    } catch { return dateStr; }
+  }
+
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
