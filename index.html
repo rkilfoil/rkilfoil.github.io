@@ -275,6 +275,34 @@
     .settings-card .field { margin-bottom: 12px; }
     .settings-card .field:last-of-type { margin-bottom: 0; }
 
+    /* ── Send confirm modal ── */
+    .confirm-modal {
+      background: var(--white); border-radius: 20px; padding: 32px;
+      max-width: 360px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.25);
+      text-align: center;
+    }
+    .confirm-modal .send-icon {
+      width: 56px; height: 56px; background: var(--green-lt); border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; margin: 0 auto 16px;
+    }
+    .confirm-modal h3 { font-family: 'Lora', serif; font-size: 20px; margin-bottom: 8px; }
+    .confirm-modal p  { font-size: 14px; color: var(--ink-soft); margin-bottom: 24px; line-height: 1.5; }
+    .confirm-modal .btn { width: 100%; justify-content: center; padding: 12px; margin-bottom: 8px; font-size: 15px; }
+    .confirm-modal .btn:last-child { margin-bottom: 0; }
+
+    /* Countdown bar */
+    .countdown-wrap { margin-bottom: 20px; }
+    .countdown-label { font-size: 28px; font-weight: 700; color: var(--green); font-family: 'Lora', serif; margin-bottom: 8px; }
+    .countdown-bar-track {
+      height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden;
+    }
+    .countdown-bar-fill {
+      height: 100%; background: var(--green); border-radius: 3px;
+      transition: width 1s linear;
+    }
+    .countdown-msg { font-size: 13px; color: var(--ink-muted); margin-top: 8px; }
+
     @media (max-width: 480px) {
       .signin-card { padding: 32px 24px; }
       .modal { padding: 24px; }
@@ -371,6 +399,15 @@
       <button class="btn btn-primary" onclick="saveSettings()">Save</button>
     </div>
     <div class="settings-card">
+      <h3>Sending</h3>
+      <div class="field">
+        <label>Send delay (seconds)</label>
+        <input type="number" id="settings-delay" min="0" max="60" placeholder="10" style="max-width:120px" />
+      </div>
+      <p style="font-size:12px;color:var(--ink-muted);margin-top:-4px;margin-bottom:12px">After you approve a reply, it waits this many seconds before sending — giving you a chance to cancel.</p>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+    <div class="settings-card">
       <h3>API keys</h3>
       <div class="field">
         <label>Claude API key</label>
@@ -378,6 +415,22 @@
       </div>
       <button class="btn btn-ghost btn-sm" onclick="saveSettings()">Update</button>
     </div>
+  </div>
+</div>
+
+<!-- Send confirm modal -->
+<div class="modal-overlay" id="modal-send">
+  <div class="confirm-modal">
+    <div class="send-icon">📤</div>
+    <h3 id="send-confirm-title">Send to Sarah?</h3>
+    <p id="send-confirm-body">This will send your reply. You can cancel during the countdown.</p>
+    <div class="countdown-wrap" id="countdown-wrap" style="display:none">
+      <div class="countdown-label" id="countdown-num">10</div>
+      <div class="countdown-bar-track"><div class="countdown-bar-fill" id="countdown-bar" style="width:100%"></div></div>
+      <div class="countdown-msg">Sending automatically — tap Cancel to stop</div>
+    </div>
+    <button class="btn btn-green" id="send-confirm-btn" onclick="confirmSend()">Send now</button>
+    <button class="btn btn-ghost" onclick="cancelSend()">Cancel</button>
   </div>
 </div>
 
@@ -828,7 +881,8 @@ function renderDraftUI(draft) {
   document.getElementById('draft-card').innerHTML = `
     <textarea id="draft-text" spellcheck="true" oninput="updateSavedDraft(this.value)">${escHtml(draft)}</textarea>
     <div class="draft-actions">
-      <button class="btn btn-green"      onclick="saveDraftToGmail()">✓ Save to Drafts</button>
+      <button class="btn btn-green"      onclick="approveSend()">✈️ Approve &amp; Send</button>
+      <button class="btn btn-ghost"      onclick="saveDraftToGmail()">💾 Save to Drafts</button>
       <button class="btn btn-ghost"      onclick="generateDraft()">↻ Regenerate</button>
       <button class="btn btn-red btn-sm" onclick="rejectDraft()">✕ Reject</button>
     </div>`;
@@ -854,6 +908,105 @@ function rejectDraft() {
       <p style="color:var(--ink-muted);font-size:13px;margin-bottom:12px">Draft rejected.</p>
       <button class="btn btn-primary" onclick="generateDraft()">✨ Try again</button>
     </div>`;
+}
+
+// ── Approve & Send flow ───────────────────────────────────
+let _sendTimer = null;
+let _sendCountdown = 0;
+
+function approveSend() {
+  const to = window._replyTo || '';
+  const firstName = to.replace(/<[^>]+>/, '').replace(/"/g,'').trim().split(/[\s,]/)[0] || 'them';
+  document.getElementById('send-confirm-title').textContent = `Send to ${firstName}?`;
+  document.getElementById('send-confirm-body').textContent  = `Your reply will be sent. You can cancel during the countdown.`;
+  document.getElementById('countdown-wrap').style.display   = 'none';
+  document.getElementById('send-confirm-btn').style.display = 'block';
+  document.getElementById('send-confirm-btn').textContent   = 'Send now';
+  document.getElementById('modal-send').classList.add('open');
+}
+
+function confirmSend() {
+  const delay = parseInt(store.get('send_delay') ?? '10', 10);
+  if (!delay || delay <= 0) {
+    // No delay — send immediately
+    document.getElementById('modal-send').classList.remove('open');
+    doSendEmail();
+    return;
+  }
+
+  // Show countdown
+  _sendCountdown = delay;
+  document.getElementById('send-confirm-btn').style.display = 'none';
+  document.getElementById('countdown-wrap').style.display   = 'block';
+  document.getElementById('countdown-num').textContent       = _sendCountdown;
+  document.getElementById('countdown-bar').style.width      = '100%';
+  // Force reflow so transition works
+  document.getElementById('countdown-bar').getBoundingClientRect();
+  document.getElementById('countdown-bar').style.width = '0%';
+
+  _sendTimer = setInterval(() => {
+    _sendCountdown--;
+    document.getElementById('countdown-num').textContent = _sendCountdown;
+    if (_sendCountdown <= 0) {
+      clearInterval(_sendTimer);
+      _sendTimer = null;
+      document.getElementById('modal-send').classList.remove('open');
+      doSendEmail();
+    }
+  }, 1000);
+}
+
+function cancelSend() {
+  if (_sendTimer) { clearInterval(_sendTimer); _sendTimer = null; }
+  document.getElementById('modal-send').classList.remove('open');
+  showToast('Send cancelled', '');
+}
+
+async function doSendEmail() {
+  const draftText = document.getElementById('draft-text')?.value || '';
+  const subject   = window._replySubject || 'Re: (email)';
+  const to        = window._replyTo || '';
+
+  const emailHeaders = [
+    'To: ' + to,
+    'Subject: ' + subject,
+    'Content-Type: text/plain; charset=utf-8',
+    'MIME-Version: 1.0'
+  ].join('\r\n');
+  const raw = btoa(unescape(encodeURIComponent(emailHeaders + '\r\n\r\n' + draftText)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+  showLoading('Sending…');
+  try {
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + store.get('gmail_token'),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ raw })
+    });
+    if (!res.ok) throw new Error('Gmail send error ' + res.status);
+
+    // Mark as replied
+    setEmailStatus(window._currentId, 'replied');
+    clearSavedDraft(window._currentId);
+
+    // Update in allEmails list
+    const idx = allEmails.findIndex(e => e.id === window._currentId);
+    if (idx > -1) {
+      if (!allEmails[idx].labelIds) allEmails[idx].labelIds = [];
+      allEmails[idx].labelIds.push('SENT');
+    }
+
+    showToast('Reply sent! ✅', 'success');
+    renderEmailList();
+    updateSubtitle();
+    setTimeout(() => showScreen('inbox'), 1500);
+  } catch(e) {
+    showToast('Could not send: ' + e.message, 'error');
+  }
+  hideLoading();
 }
 
 // ── Save draft to Gmail ───────────────────────────────────
@@ -897,14 +1050,17 @@ async function saveDraftToGmail() {
 
 // ── Settings ──────────────────────────────────────────────
 function showSettingsScreen() {
-  document.getElementById('settings-tone').value      = store.get('tone') || '';
+  document.getElementById('settings-tone').value       = store.get('tone') || '';
   document.getElementById('settings-claude-key').value = store.get('claude_key') || '';
+  document.getElementById('settings-delay').value      = store.get('send_delay') ?? '10';
 }
 function saveSettings() {
-  const tone = document.getElementById('settings-tone').value.trim();
-  const key  = document.getElementById('settings-claude-key').value.trim();
-  if (tone) store.set('tone', tone);
-  if (key)  store.set('claude_key', key);
+  const tone  = document.getElementById('settings-tone').value.trim();
+  const key   = document.getElementById('settings-claude-key').value.trim();
+  const delay = document.getElementById('settings-delay').value.trim();
+  if (tone)           store.set('tone', tone);
+  if (key)            store.set('claude_key', key);
+  if (delay !== '')   store.set('send_delay', delay);
   showToast('Settings saved', 'success');
 }
 
