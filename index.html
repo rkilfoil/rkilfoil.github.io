@@ -934,14 +934,16 @@ function startDictation() {
     return;
   }
   _recognition = new SpeechRecognition();
-  _recognition.continuous      = true;
-  _recognition.interimResults  = true;
-  _recognition.lang            = 'en-US';
+  _recognition.continuous     = true;
+  _recognition.interimResults = true;
+  _recognition.lang           = 'en-US';
 
   const btn    = document.getElementById('dictate-btn');
   const status = document.getElementById('dictate-status');
   const box    = document.getElementById('regen-instructions');
-  const existing = box?.value || '';
+
+  // Everything confirmed as final so far (persists across result events)
+  let confirmedText = box?.value || '';
 
   _recognition.onstart = () => {
     _dictating = true;
@@ -949,19 +951,21 @@ function startDictation() {
     if (status) status.style.display = 'flex';
   };
 
-  let interim = '';
   _recognition.onresult = (e) => {
-    let finalChunk = '', interimChunk = '';
+    let interimChunk = '';
+
     for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) finalChunk  += e.results[i][0].transcript;
-      else                       interimChunk += e.results[i][0].transcript;
+      const transcript = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        // Append finalised words permanently to our running total
+        confirmedText += (confirmedText ? ' ' : '') + transcript.trim();
+      } else {
+        interimChunk += transcript;
+      }
     }
-    interim = interimChunk;
-    if (box) box.value = existing + (existing ? ' ' : '') + finalChunk + (interimChunk ? ' ' + interimChunk : '');
-    if (finalChunk && box) {
-      // Update the "existing" baseline so next chunk appends correctly
-      box.dispatchEvent(new Event('input'));
-    }
+
+    // Show confirmed + current interim preview — never wipes confirmed
+    if (box) box.value = confirmedText + (interimChunk ? ' ' + interimChunk : '');
   };
 
   _recognition.onerror = (e) => {
@@ -969,7 +973,13 @@ function startDictation() {
     if (e.error !== 'aborted') showToast('Dictation error: ' + e.error, 'error');
   };
 
-  _recognition.onend = () => { if (_dictating) stopDictation(); };
+  // On Safari/iOS, recognition stops automatically after a pause — restart it
+  _recognition.onend = () => {
+    if (_dictating) {
+      // Restart to keep listening continuously
+      try { _recognition.start(); } catch {}
+    }
+  };
 
   _recognition.start();
 }
