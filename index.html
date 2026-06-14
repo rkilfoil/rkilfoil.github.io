@@ -290,18 +290,34 @@
     .confirm-modal p  { font-size: 14px; color: var(--ink-soft); margin-bottom: 24px; line-height: 1.5; }
     .confirm-modal .btn { width: 100%; justify-content: center; padding: 12px; margin-bottom: 8px; font-size: 15px; }
     .confirm-modal .btn:last-child { margin-bottom: 0; }
+    /* reply-mode toggle */
+    .reply-mode-toggle {
+      display: flex; gap: 6px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .reply-mode-btn {
+      padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500;
+      border: 1px solid var(--rule); background: var(--white); color: var(--ink-soft);
+      cursor: pointer; transition: all .15s;
+    }
+    .reply-mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-    /* Countdown bar */
-    .countdown-wrap { margin-bottom: 20px; }
-    .countdown-label { font-size: 28px; font-weight: 700; color: var(--green); font-family: 'Lora', serif; margin-bottom: 8px; }
-    .countdown-bar-track {
-      height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden;
+    /* ── Floating send bar ── */
+    .send-bar {
+      position: fixed; bottom: 24px; left: 16px; right: 16px; max-width: 420px; margin: 0 auto;
+      background: var(--ink); color: #fff; border-radius: 14px;
+      padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.3); z-index: 400;
+      transform: translateY(120px); transition: transform .3s ease;
     }
-    .countdown-bar-fill {
-      height: 100%; background: var(--green); border-radius: 3px;
-      transition: width 1s linear;
+    .send-bar.show { transform: translateY(0); }
+    .send-bar-text { flex: 1; font-size: 14px; font-weight: 500; }
+    .send-bar-text span { color: #a5f3c4; font-weight: 700; font-size: 16px; }
+    .send-bar-cancel {
+      padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3);
+      background: transparent; color: #fff; font-size: 13px; font-weight: 500;
+      cursor: pointer; white-space: nowrap; font-family: 'Inter', sans-serif;
     }
-    .countdown-msg { font-size: 13px; color: var(--ink-muted); margin-top: 8px; }
+    .send-bar-cancel:hover { background: rgba(255,255,255,.1); }
 
     @media (max-width: 480px) {
       .signin-card { padding: 32px 24px; }
@@ -423,15 +439,20 @@
   <div class="confirm-modal">
     <div class="send-icon">📤</div>
     <h3 id="send-confirm-title">Send to Sarah?</h3>
-    <p id="send-confirm-body">This will send your reply. You can cancel during the countdown.</p>
-    <div class="countdown-wrap" id="countdown-wrap" style="display:none">
-      <div class="countdown-label" id="countdown-num">10</div>
-      <div class="countdown-bar-track"><div class="countdown-bar-fill" id="countdown-bar" style="width:100%"></div></div>
-      <div class="countdown-msg">Sending automatically — tap Cancel to stop</div>
+    <p id="send-confirm-body">Choose who to reply to, then confirm.</p>
+    <div class="reply-mode-toggle">
+      <button class="reply-mode-btn active" id="mode-all"    onclick="setReplyMode('all')">↩ Reply All</button>
+      <button class="reply-mode-btn"        id="mode-sender" onclick="setReplyMode('sender')">Reply to sender only</button>
     </div>
-    <button class="btn btn-green" id="send-confirm-btn" onclick="confirmSend()">Send now</button>
+    <button class="btn btn-green" id="send-confirm-btn" onclick="confirmSend()">Start sending</button>
     <button class="btn btn-ghost" onclick="cancelSend()">Cancel</button>
   </div>
+</div>
+
+<!-- Floating send countdown bar -->
+<div class="send-bar" id="send-bar">
+  <div class="send-bar-text">Sending in <span id="send-bar-num">10</span>s…</div>
+  <button class="send-bar-cancel" onclick="cancelSend()">Cancel</button>
 </div>
 
 <!-- Setup modal -->
@@ -474,6 +495,7 @@ const SCOPES = 'https://www.googleapis.com/auth/gmail.modify https://www.googlea
 let currentEmail  = null;
 let allEmails     = [];
 let currentFilter = 'all';
+let _replyMode    = 'all'; // 'all' or 'sender'
 
 // ── Local storage ─────────────────────────────────────────
 const store = {
@@ -715,6 +737,7 @@ async function openEmail(id) {
     const subject = getHeader(headers, 'Subject') || '(no subject)';
     const from    = getHeader(headers, 'From') || '';
     const to      = getHeader(headers, 'To') || '';
+    const cc      = getHeader(headers, 'Cc') || '';
     const date    = formatDate(getHeader(headers, 'Date'));
     const body    = extractBody(email.payload);
     const status  = getEmailStatus(email);
@@ -724,39 +747,56 @@ async function openEmail(id) {
     document.getElementById('detail-meta').innerHTML =
       `<span class="meta-pill">From: ${escHtml(from)}</span>
        <span class="meta-pill">To: ${escHtml(to)}</span>
+       ${cc ? `<span class="meta-pill">CC: ${escHtml(cc)}</span>` : ''}
        <span class="meta-pill">${date}</span>`;
     document.getElementById('detail-body').textContent = body;
 
-    // Store for drafting
-    window._replySubject = subject.startsWith('Re:') ? subject : 'Re: ' + subject;
-    window._replyTo = from;
-    window._currentId = id;
+    // Build reply recipients
+    // Reply All = original sender + all To recipients + CC (minus yourself — Gmail handles deduplication)
+    const replyAllTo = [from, to].filter(Boolean).join(', ');
+    const replyAllCC = cc;
+
+    window._replySubject  = subject.startsWith('Re:') ? subject : 'Re: ' + subject;
+    window._replyTo       = from;           // sender only
+    window._replyAllTo    = replyAllTo;     // all recipients
+    window._replyAllCC    = replyAllCC;     // CC list
+    window._currentId     = id;
+
+    // Mark as read in allEmails immediately so inbox status reflects correctly when we go back
+    const idx = allEmails.findIndex(e => e.id === id);
+    if (idx > -1 && allEmails[idx].labelIds) {
+      allEmails[idx].labelIds = allEmails[idx].labelIds.filter(l => l !== 'UNREAD');
+    }
 
     showScreen('detail');
     hideLoading();
 
     // ── Smart draft logic ──────────────────────────────────
     if (status === 'replied') {
-      // Already replied — just show a note, no draft
       document.getElementById('draft-source-tag').style.display = 'none';
       document.getElementById('draft-card').innerHTML = `
-        <div class="no-reply-state">✅ You've already replied to this email.</div>`;
+        <div class="no-reply-state">
+          ✅ You've already replied to this email.
+          <br><br>
+          <button class="btn btn-ghost btn-sm" onclick="generateDraft()" style="margin-top:4px">✍️ Send another reply</button>
+        </div>`;
     } else if (status === 'draft') {
-      // Existing draft — show it, don't regenerate
       const saved = getSavedDraft(id);
       if (saved) {
         document.getElementById('draft-source-tag').textContent = 'Existing draft';
         document.getElementById('draft-source-tag').style.display = 'inline';
         renderDraftUI(saved);
       } else {
-        // Status was draft but no local text — regenerate
         autoGenerate(status);
       }
     } else {
-      // Unread or read — auto-generate
       document.getElementById('draft-source-tag').style.display = 'none';
       autoGenerate(status);
     }
+
+    // Re-render inbox list so status badge updates if user goes back
+    renderEmailList();
+    updateSubtitle();
 
   } catch(e) {
     hideLoading();
@@ -1016,46 +1056,54 @@ function rejectDraft() {
 }
 
 // ── Approve & Send flow ───────────────────────────────────
-let _sendTimer = null;
+let _sendTimer    = null;
 let _sendCountdown = 0;
+let _pendingDraft = '';
+
+function setReplyMode(mode) {
+  _replyMode = mode;
+  document.getElementById('mode-all').classList.toggle('active',    mode === 'all');
+  document.getElementById('mode-sender').classList.toggle('active', mode === 'sender');
+}
 
 function approveSend() {
-  const to = window._replyTo || '';
-  const firstName = to.replace(/<[^>]+>/, '').replace(/"/g,'').trim().split(/[\s,]/)[0] || 'them';
+  const from = window._replyTo || '';
+  const firstName = from.replace(/<[^>]+>/, '').replace(/"/g,'').trim().split(/[\s,]/)[0] || 'them';
+
+  // Store draft text now (user might navigate away during countdown)
+  _pendingDraft = document.getElementById('draft-text')?.value || '';
+
+  // Reset to Reply All default each time
+  setReplyMode('all');
+
   document.getElementById('send-confirm-title').textContent = `Send to ${firstName}?`;
-  document.getElementById('send-confirm-body').textContent  = `Your reply will be sent. You can cancel during the countdown.`;
-  document.getElementById('countdown-wrap').style.display   = 'none';
-  document.getElementById('send-confirm-btn').style.display = 'block';
-  document.getElementById('send-confirm-btn').textContent   = 'Send now';
+  document.getElementById('send-confirm-body').textContent  = 'Choose who to reply to, then confirm.';
   document.getElementById('modal-send').classList.add('open');
 }
 
 function confirmSend() {
+  // Close the confirm modal — user can now browse freely
+  document.getElementById('modal-send').classList.remove('open');
+
   const delay = parseInt(store.get('send_delay') ?? '10', 10);
   if (!delay || delay <= 0) {
-    // No delay — send immediately
-    document.getElementById('modal-send').classList.remove('open');
     doSendEmail();
     return;
   }
 
-  // Show countdown
+  // Start floating countdown bar
   _sendCountdown = delay;
-  document.getElementById('send-confirm-btn').style.display = 'none';
-  document.getElementById('countdown-wrap').style.display   = 'block';
-  document.getElementById('countdown-num').textContent       = _sendCountdown;
-  document.getElementById('countdown-bar').style.width      = '100%';
-  // Force reflow so transition works
-  document.getElementById('countdown-bar').getBoundingClientRect();
-  document.getElementById('countdown-bar').style.width = '0%';
+  const bar = document.getElementById('send-bar');
+  document.getElementById('send-bar-num').textContent = _sendCountdown;
+  bar.classList.add('show');
 
   _sendTimer = setInterval(() => {
     _sendCountdown--;
-    document.getElementById('countdown-num').textContent = _sendCountdown;
+    document.getElementById('send-bar-num').textContent = _sendCountdown;
     if (_sendCountdown <= 0) {
       clearInterval(_sendTimer);
       _sendTimer = null;
-      document.getElementById('modal-send').classList.remove('open');
+      bar.classList.remove('show');
       doSendEmail();
     }
   }, 1000);
@@ -1064,24 +1112,32 @@ function confirmSend() {
 function cancelSend() {
   if (_sendTimer) { clearInterval(_sendTimer); _sendTimer = null; }
   document.getElementById('modal-send').classList.remove('open');
-  showToast('Send cancelled', '');
+  document.getElementById('send-bar').classList.remove('show');
+  _pendingDraft = '';
+  showToast('Send cancelled — draft kept', '');
 }
 
 async function doSendEmail() {
-  const draftText = document.getElementById('draft-text')?.value || '';
-  const subject   = window._replySubject || 'Re: (email)';
-  const to        = window._replyTo || '';
+  document.getElementById('send-bar').classList.remove('show');
 
-  const emailHeaders = [
-    'To: ' + to,
+  const draftText = _pendingDraft || document.getElementById('draft-text')?.value || '';
+  const subject   = window._replySubject || 'Re: (email)';
+
+  // Build To/CC based on reply mode
+  const toField = _replyMode === 'all' ? (window._replyAllTo || window._replyTo) : window._replyTo;
+  const ccField  = _replyMode === 'all' ? (window._replyAllCC || '') : '';
+
+  const headerLines = [
+    'To: ' + toField,
+    ccField ? 'Cc: ' + ccField : '',
     'Subject: ' + subject,
     'Content-Type: text/plain; charset=utf-8',
     'MIME-Version: 1.0'
-  ].join('\r\n');
-  const raw = btoa(unescape(encodeURIComponent(emailHeaders + '\r\n\r\n' + draftText)))
+  ].filter(Boolean).join('\r\n');
+
+  const raw = btoa(unescape(encodeURIComponent(headerLines + '\r\n\r\n' + draftText)))
     .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
-  showLoading('Sending…');
   try {
     const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',
@@ -1093,25 +1149,26 @@ async function doSendEmail() {
     });
     if (!res.ok) throw new Error('Gmail send error ' + res.status);
 
-    // Mark as replied
     setEmailStatus(window._currentId, 'replied');
     clearSavedDraft(window._currentId);
+    _pendingDraft = '';
 
-    // Update in allEmails list
     const idx = allEmails.findIndex(e => e.id === window._currentId);
     if (idx > -1) {
       if (!allEmails[idx].labelIds) allEmails[idx].labelIds = [];
       allEmails[idx].labelIds.push('SENT');
     }
 
-    showToast('Reply sent! ✅', 'success');
+    // Update badge if still on detail screen
+    const badge = document.getElementById('detail-status-badge');
+    if (badge) badge.innerHTML = statusBadgeHTML('replied');
+
+    showToast('✅ Reply sent successfully!', 'success');
     renderEmailList();
     updateSubtitle();
-    setTimeout(() => showScreen('inbox'), 1500);
   } catch(e) {
     showToast('Could not send: ' + e.message, 'error');
   }
-  hideLoading();
 }
 
 // ── Save draft to Gmail ───────────────────────────────────
