@@ -809,9 +809,12 @@ async function markAsUnread() {
 }
 
 // ── Generate draft ────────────────────────────────────────
-async function generateDraft() {
+async function generateDraft(extraInstructions) {
   const claudeKey = store.get('claude_key');
   if (!claudeKey) { showToast('No Claude API key — check Settings', 'error'); return; }
+
+  // Stop any active dictation before regenerating
+  if (_dictating) stopDictation();
 
   const tone    = store.get('tone') || 'Friendly and professional.';
   const headers = currentEmail.payload?.headers || [];
@@ -827,10 +830,14 @@ async function generateDraft() {
     </div>`;
 
   try {
-    const prompt = `You are drafting a reply on behalf of the email recipient. Tone instructions:
+    const instructionsBlock = extraInstructions
+      ? `\n\nSPECIFIC INSTRUCTIONS FROM THE SENDER (these take priority over everything else):\n"${extraInstructions}"\n`
+      : '';
+
+    const prompt = `You are drafting a reply on behalf of the email recipient. General tone instructions:
 
 "${tone}"
-
+${instructionsBlock}
 ---
 ORIGINAL EMAIL
 From: ${from}
@@ -839,7 +846,7 @@ Subject: ${subject}
 ${body}
 ---
 
-Write a reply email body only — no subject line, no preamble. Start with the greeting. Be appropriately concise.`;
+Write a reply email body only — no subject line, no preamble. Start with the greeting. Be appropriately concise.${extraInstructions ? ' The specific instructions above must be followed and take priority over the general tone guidelines.' : ''}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -860,13 +867,9 @@ Write a reply email body only — no subject line, no preamble. Start with the g
     if (data.error) throw new Error(data.error.message);
     const draft = data.content?.[0]?.text || '';
 
-    // Save locally
     saveDraftLocally(window._currentId, draft);
     setEmailStatus(window._currentId, 'draft');
-
-    // Update badge
     document.getElementById('detail-status-badge').innerHTML = statusBadgeHTML('draft');
-
     renderDraftUI(draft);
   } catch(e) {
     document.getElementById('draft-card').innerHTML = `
@@ -883,9 +886,101 @@ function renderDraftUI(draft) {
     <div class="draft-actions">
       <button class="btn btn-green"      onclick="approveSend()">✈️ Approve &amp; Send</button>
       <button class="btn btn-ghost"      onclick="saveDraftToGmail()">💾 Save to Drafts</button>
-      <button class="btn btn-ghost"      onclick="generateDraft()">↻ Regenerate</button>
+      <button class="btn btn-ghost"      onclick="toggleRegenPanel()">↻ Regenerate</button>
       <button class="btn btn-red btn-sm" onclick="rejectDraft()">✕ Reject</button>
+    </div>
+    <div id="regen-panel" style="display:none;border-top:1px solid var(--rule);padding:16px;background:var(--surface);">
+      <p style="font-size:12px;font-weight:600;color:var(--ink-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Extra instructions for Claude</p>
+      <div style="position:relative;margin-bottom:10px">
+        <textarea id="regen-instructions" rows="3" spellcheck="true"
+          placeholder="e.g. Make it shorter. Push back politely on the deadline. Add that we need sign-off from the board first."
+          style="width:100%;padding:10px 44px 10px 12px;border:1px solid var(--rule);border-radius:8px;font-family:'Inter',sans-serif;font-size:14px;color:var(--ink);background:var(--white);resize:none;outline:none;line-height:1.5"></textarea>
+        <button id="dictate-btn" onclick="toggleDictation()" title="Dictate instructions"
+          style="position:absolute;right:8px;top:8px;width:30px;height:30px;border-radius:8px;border:none;background:var(--accent-lt);color:var(--accent);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s">🎤</button>
+      </div>
+      <div id="dictate-status" style="display:none;font-size:12px;color:var(--accent);margin-bottom:8px;display:none;align-items:center;gap:6px">
+        <span style="width:8px;height:8px;background:var(--red);border-radius:50%;display:inline-block;animation:pulse 1s infinite"></span>
+        Listening… tap mic to stop
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="generateDraft(document.getElementById('regen-instructions').value.trim())">↻ Regenerate with instructions</button>
+        <button class="btn btn-ghost btn-sm"   onclick="generateDraft()">Regenerate without</button>
+        <button class="btn btn-ghost btn-sm"   onclick="toggleRegenPanel()">Cancel</button>
+      </div>
     </div>`;
+}
+
+function toggleRegenPanel() {
+  const panel = document.getElementById('regen-panel');
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) document.getElementById('regen-instructions')?.focus();
+}
+
+// ── Voice dictation ───────────────────────────────────────
+let _recognition = null;
+let _dictating   = false;
+
+function toggleDictation() {
+  if (_dictating) { stopDictation(); return; }
+  startDictation();
+}
+
+function startDictation() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    showToast('Voice dictation not supported in this browser. Try Safari on iPhone or Chrome.', 'error');
+    return;
+  }
+  _recognition = new SpeechRecognition();
+  _recognition.continuous      = true;
+  _recognition.interimResults  = true;
+  _recognition.lang            = 'en-US';
+
+  const btn    = document.getElementById('dictate-btn');
+  const status = document.getElementById('dictate-status');
+  const box    = document.getElementById('regen-instructions');
+  const existing = box?.value || '';
+
+  _recognition.onstart = () => {
+    _dictating = true;
+    if (btn)    { btn.textContent = '⏹'; btn.style.background = 'var(--red-lt)'; btn.style.color = 'var(--red)'; }
+    if (status) status.style.display = 'flex';
+  };
+
+  let interim = '';
+  _recognition.onresult = (e) => {
+    let finalChunk = '', interimChunk = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalChunk  += e.results[i][0].transcript;
+      else                       interimChunk += e.results[i][0].transcript;
+    }
+    interim = interimChunk;
+    if (box) box.value = existing + (existing ? ' ' : '') + finalChunk + (interimChunk ? ' ' + interimChunk : '');
+    if (finalChunk && box) {
+      // Update the "existing" baseline so next chunk appends correctly
+      box.dispatchEvent(new Event('input'));
+    }
+  };
+
+  _recognition.onerror = (e) => {
+    stopDictation();
+    if (e.error !== 'aborted') showToast('Dictation error: ' + e.error, 'error');
+  };
+
+  _recognition.onend = () => { if (_dictating) stopDictation(); };
+
+  _recognition.start();
+}
+
+function stopDictation() {
+  _dictating = false;
+  if (_recognition) { try { _recognition.stop(); } catch {} _recognition = null; }
+  const btn    = document.getElementById('dictate-btn');
+  const status = document.getElementById('dictate-status');
+  if (btn)    { btn.textContent = '🎤'; btn.style.background = 'var(--accent-lt)'; btn.style.color = 'var(--accent)'; }
+  if (status) status.style.display = 'none';
 }
 
 function updateSavedDraft(text) {
